@@ -1,5 +1,6 @@
 import requests
 import operator
+import re
 
 from bs4 import BeautifulSoup
 from functools import reduce
@@ -23,16 +24,16 @@ def getpage(query, url_type):
     if url_type == "item":
         url = BASE_URL + "s?k=" + query
     elif url_type == "asin":
-        url = BASE_URL + "product-reviews/" + query
+        url = BASE_URL + "product-reviews/" + query    
     else:
-        return "Error: url type unsupported. Choose from the following 'item', 'asin'"
+        raise Exception("URL type unsupported. Choose from the following 'item', 'asin'")
         
     response = requests.get(url, headers = HEADERS)
     
     if response.status_code == 200:
         return BeautifulSoup(response.text, "html.parser")
     else:
-        return "Error: status_code != 200"
+        raise Exception("Response status_code != 200")
 
     
 def get_prod_name(query, start = 1, end = None):
@@ -46,8 +47,10 @@ def get_prod_name(query, start = 1, end = None):
 
     returns a list of product names from search
     """
+    query = requests.utils.quote(query, safe = "")
+    
     if end == None:
-        query = query + f"&page={str(start)}"
+        query = f"{query}&page={start}"
         html_raw = getpage(query, "item")
         products = html_raw.find_all("span", class_ = "a-size-medium a-color-base a-text-normal")
         
@@ -55,7 +58,7 @@ def get_prod_name(query, start = 1, end = None):
 
     else:
         pages = range(start, end + 1)
-        query = list(map(lambda x: query + f"&page={str(x)}", pages))
+        query = list(map(lambda x: f"{query}&page={x}", pages))
         html_raw = list(map(lambda x: getpage(x, "item"), query))
         html_tag = list(map(lambda x: x.find_all("span", class_ = "a-size-medium a-color-base a-text-normal"), html_raw))
         html_tag = reduce(operator.iconcat, html_tag) # flatten the ResultSet
@@ -76,18 +79,20 @@ def get_asin(query, start = 1, end = None):
 
     returns a list of asin associated with the items from search
     """
+    query = requests.utils.quote(query, safe = '')
+    
     if end == None:
-        query = query + f"&page={str(start)}"
+        query = f"{query}&page={start}"
         html_raw = getpage(query, "item")
-        html_tag = html_raw.find_all("div", class_ = "s-result-item s-asin sg-col-0-of-12 sg-col-16-of-20 sg-col s-widget-spacing-small sg-col-12-of-16")
+        html_tag = html_raw.find_all("div", {"class": re.compile("s-result-item s-asin")})
     
         return list(map(lambda x: x.attrs["data-asin"], html_tag))
     
     else:
         pages = range(start, end + 1)
-        query = list(map(lambda x: query + f"&page={str(x)}", pages))
+        query = list(map(lambda x: f"{query}&page={x}", pages))
         html_raw = list(map(lambda x: getpage(x, "item"), query))
-        html_tag = list(map(lambda x: x.find_all("div", class_ = "s-result-item s-asin sg-col-0-of-12 sg-col-16-of-20 sg-col s-widget-spacing-small sg-col-12-of-16"),
+        html_tag = list(map(lambda x: x.find_all("div", {"class": re.compile("s-result-item s-asin")}),
                             html_raw
                            )
                        )
@@ -108,23 +113,15 @@ def get_reviews(asin: list, start = 1, end = None):
     returns individual review contents of a product-review page.
     """
     if end == None:
-        query = list(map(lambda x: x + f"?pageNumber={str(start)}", asin))
-        html_raw = list(map(lambda x: getpage(x, "asin"), query))
-        html_tag = list(map(lambda x: x.find_all("span", attrs = {"data-hook": "review-body"}), html_raw))
-        html_tag = reduce(operator.iconcat, html_tag) # flatten the ResultSet
-        reviews = list(map(lambda x: x.text, html_tag))
-        reviews = [r.strip("\n") for r in reviews]
-
-        return reviews
-    
+        html_raw = list(map(lambda x: getpage(f"{x}?pageNumber={start}", "asin"), asin))
+   
     else:
         pages = range(start, end + 1)
         queries = []
                 
         for p in pages:
             for id in asin:
-                query = id + f"?pageNumber={str(p)}"
-                queries.append(query)
+                queries.append(f"{id}?pageNumber={p}")
         
         html_raw = list(map(lambda x: getpage(x, "asin"), queries))
         html_tag = list(map(lambda x: x.find_all("span", attrs = {"data-hook": "review-body"}), html_raw))
